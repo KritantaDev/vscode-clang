@@ -5,6 +5,8 @@ import * as path from "path";
 import * as clang from "./clang";
 import * as execution from "./execution";
 
+import {CompilationDatabase} from './compile_db';
+
 export const diagnosticRe = /^\<stdin\>:(\d+):(\d+):(?:((?:\{.+?\})+):)? ((?:fatal )?error|warning): (.*?)$/;
 function str2diagserv(str: string): vscode.DiagnosticSeverity {
     switch (str) {
@@ -97,6 +99,8 @@ function parseRanges(s: string): vscode.Range[] {
 }
 
 export class ClangDiagnosticProvider implements DiagnosticProvider {
+    private _compilationDatabase: CompilationDatabase = CompilationDatabase.openDefault();
+
     provideDiagnostic(document: vscode.TextDocument, token: vscode.CancellationToken): Thenable<vscode.Diagnostic[]> {
         return this.fetchDiagnostic(document, token)
             .then(
@@ -116,11 +120,13 @@ export class ClangDiagnosticProvider implements DiagnosticProvider {
     }
 
     fetchDiagnostic(document: vscode.TextDocument, token: vscode.CancellationToken): Thenable<string> {
-        let [cmd, args] = clang.check(document.languageId);
+        let [cmd, base_args] = clang.check(document.languageId);
+        const info = this._compilationDatabase.infoForDocument(document.fileName);
+        const args = base_args.concat(info.args);
         return execution.processString(cmd, args,
             {
-                cwd: path.dirname(document.uri.fsPath),
-                maxBuffer: clang.getConf<number>("diagnostic.maxBuffer")
+                cwd: info.cwd || path.dirname(document.uri.fsPath),
+                maxBuffer: clang.getConf<number>('diagnostic.maxBuffer')
             },
             token,
             document.getText()

@@ -5,6 +5,8 @@ import * as child_process from "child_process";
 import * as clang from "./clang";
 import * as execution from "./execution";
 
+import {CompilationDatabase} from './compile_db';
+
 export const completionRe = /^COMPLETION: (.*?)(?: : (.*))?$/;
 export const descriptionRe = /^(.*?)(?: : (.*))?$/;
 export const returnTypeRe = /\[#([^#]+)#\]/ig;
@@ -30,6 +32,8 @@ function findPreviousDelimiter(document: vscode.TextDocument, position: vscode.P
 
 
 export class ClangCompletionItemProvider implements vscode.CompletionItemProvider {
+    private _compilationDatabase: CompilationDatabase = CompilationDatabase.openDefault();
+
     provideCompletionItems(document: vscode.TextDocument, position: vscode.Position, token: vscode.CancellationToken): Thenable<vscode.CompletionItem[]> {
         return this.fetchCompletionItems(document, position, token)
             .then(
@@ -49,14 +53,16 @@ export class ClangCompletionItemProvider implements vscode.CompletionItemProvide
     }
 
     fetchCompletionItems(document: vscode.TextDocument, position: vscode.Position, token: vscode.CancellationToken): Thenable<string> {
-        // Currently, Clang does NOT complete token partially 
+        // Currently, Clang does NOT complete token partially
         // So we find a previous delimiter and start complete from there.
         let delPos = findPreviousDelimiter(document, position);
-        let [cmd, args] = clang.complete(document.languageId, delPos.line + 1, delPos.character + 1);
+        const [cmd, base_args] = clang.complete(document.languageId, delPos.line + 1, delPos.character + 1);
+        const info = this._compilationDatabase.infoForDocument(document.fileName);
+        const args = base_args.concat(info.args);
         return execution.processString(cmd, args,
             {
-                cwd: path.dirname(document.uri.fsPath),
-                maxBuffer: clang.getConf<number>("completion.maxBuffer")
+                cwd: info.cwd || path.dirname(document.uri.fsPath),
+                maxBuffer: clang.getConf<number>('completion.maxBuffer')
             },
             token,
             document.getText()
